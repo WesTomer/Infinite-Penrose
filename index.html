@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Infinite Penrose Kite &amp; Dart Explorer v5</title>
+<title>Infinite Penrose Kite &amp; Dart Explorer v6</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14;
@@ -45,6 +45,10 @@
   .depth output { min-width: 66px; color: #7dd3fc; font-variant-numeric: tabular-nums; }
   #saveStatus { font-size: 11.5px; color: #94a3b8; min-width: 48px; }
   #saveStatus.err { color: #fca5a5; }
+  /* v6: Hide toggle - hides all controls until the screen is touched/clicked again */
+  .hud-header, .dock { transition: opacity 0.2s ease, visibility 0.2s ease; }
+  body.ui-hidden .hud-header, body.ui-hidden .dock { opacity: 0; visibility: hidden; pointer-events: none; }
+  body.ui-hidden .hud-header .glass, body.ui-hidden .dock { pointer-events: none; }
   @media (max-width: 640px) { .title p { display: none; } .depth input { width: 90px; } }
 </style>
 </head>
@@ -53,7 +57,7 @@
 
 <div class="hud-header">
   <div class="glass title">
-    <h1>Infinite Penrose P2 Explorer <span>v5</span></h1>
+    <h1>Infinite Penrose P2 Explorer <span>v6</span></h1>
     <p>Click a tile to fill &bull; fills keep spreading as you pan &bull; matching arrangements are filled everywhere &bull; drag to pan &bull; scroll / pinch to zoom &bull; Alt+click picks a colour &bull; Ctrl+Z undo</p>
     <div class="row">
       <button id="newMosaic" title="Start a new colouring (current one stays saved)">New</button>
@@ -98,6 +102,7 @@
       <button id="redoBtn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
       <button id="clearBtn" title="Remove all fills">Clear fills</button>
       <button id="resetBtn" title="Reset view (0)">Reset view</button>
+      <button id="hideBtn" title="Hide all controls; touch or click the screen to show them again (H)">Hide</button>
     </div>
   </div>
 </div>
@@ -607,6 +612,7 @@
     return { d: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y), x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
   }
   canvas.addEventListener("pointerdown", (e) => {
+    if (uiHidden) { e.preventDefault(); showUI(); return; }   // v6: first touch/click only reveals the controls
     if (e.button === 2) return;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -661,12 +667,29 @@
     zoomAt(Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.002), e.clientX, e.clientY);
   }, { passive: false });
 
+  // ---------- v6: hide / show controls ----------
+  let uiHidden = false;
+  function hideUI() {
+    uiHidden = true;
+    document.body.classList.add("ui-hidden");
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    ptrs.clear(); press = null; pinch = null; canvas.classList.remove("dragging");
+    updateHover(null);
+  }
+  function showUI() {
+    uiHidden = false;
+    document.body.classList.remove("ui-hidden");
+  }
+  $("hideBtn").addEventListener("click", (e) => { e.stopPropagation(); hideUI(); });
+
   function reset() { state.camX = 0; state.camY = 0; state.zoom = 1; clampView(); state.dirty = true; }
   window.addEventListener("keydown", (e) => {
     const tag = e.target.tagName;
     if (tag === "INPUT" && e.target.type !== "range") return;
     if (tag === "SELECT") return;
     const k = e.key.toLowerCase();
+    if (uiHidden && !e.ctrlKey && !e.metaKey && !e.altKey && (k === "h" || e.key === "Escape")) { e.preventDefault(); showUI(); return; }
+    if (!uiHidden && !e.ctrlKey && !e.metaKey && !e.altKey && k === "h") { e.preventDefault(); hideUI(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
