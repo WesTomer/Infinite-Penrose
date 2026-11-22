@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Infinite Penrose Kite &amp; Dart Explorer v6</title>
+<title>Infinite Penrose Kite &amp; Dart Explorer v7</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14;
@@ -45,7 +45,7 @@
   .depth output { min-width: 66px; color: #7dd3fc; font-variant-numeric: tabular-nums; }
   #saveStatus { font-size: 11.5px; color: #94a3b8; min-width: 48px; }
   #saveStatus.err { color: #fca5a5; }
-  /* v6: Hide toggle - hides all controls until the screen is touched/clicked again */
+  /* v6/v7: Hide toggle - controls stay hidden (pan/zoom/fill still work) until a double-click / double-tap */
   .hud-header, .dock { transition: opacity 0.2s ease, visibility 0.2s ease; }
   body.ui-hidden .hud-header, body.ui-hidden .dock { opacity: 0; visibility: hidden; pointer-events: none; }
   body.ui-hidden .hud-header .glass, body.ui-hidden .dock { pointer-events: none; }
@@ -54,10 +54,9 @@
 </head>
 <body>
 <canvas id="canvas"></canvas>
-
 <div class="hud-header">
   <div class="glass title">
-    <h1>Infinite Penrose P2 Explorer <span>v6</span></h1>
+    <h1>Infinite Penrose P2 Explorer <span>v7</span></h1>
     <p>Click a tile to fill &bull; fills keep spreading as you pan &bull; matching arrangements are filled everywhere &bull; drag to pan &bull; scroll / pinch to zoom &bull; Alt+click picks a colour &bull; Ctrl+Z undo</p>
     <div class="row">
       <button id="newMosaic" title="Start a new colouring (current one stays saved)">New</button>
@@ -73,7 +72,6 @@
     <span class="muted" id="fillLabel">Fills: 0</span>
   </div>
 </div>
-
 <div class="glass dock">
   <div class="row">
     <div class="group">
@@ -102,11 +100,10 @@
       <button id="redoBtn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
       <button id="clearBtn" title="Remove all fills">Clear fills</button>
       <button id="resetBtn" title="Reset view (0)">Reset view</button>
-      <button id="hideBtn" title="Hide all controls; touch or click the screen to show them again (H)">Hide</button>
+      <button id="hideBtn" title="Hide all controls; double-click or double-tap the screen to show them again (H)">Hide</button>
     </div>
   </div>
 </div>
-
 <script>
 (function () {
   "use strict";
@@ -145,7 +142,6 @@
   const MIN_ZOOM = 0.06, MAX_ZOOM = 12;
   const FULL_DEPTH = 99;           // "this tile only"
   const MAX_KEYS = 12000;          // safety cap on classes per fill op (bounds storage)
-
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
   const $ = (id) => document.getElementById(id);
@@ -154,19 +150,16 @@
   const depthInput = $("depthInput"), depthOut = $("depthOut");
   const arcsBtn = $("arcsBtn"), zoomLabel = $("zoomLabel"), tileLabel = $("tileLabel"), fillLabel = $("fillLabel");
   const toolBtns = { fill: $("toolFill"), tile: $("toolTile"), erase: $("toolErase"), pick: $("toolPick") };
-
   const state = { kite: "#2563eb", dart: "#f59e0b", stroke: "#0b1020", arc0: "#fde047", arc1: "#38bdf8",
                   arcs: false, camX: 0, camY: 0, zoom: 1, dirty: true,
                   brush: "#ef4444", recent: ["#ef4444", "#22c55e", "#a855f7", "#f8fafc", "#0f172a", "#14b8a6"],
                   depth: 4, tool: "fill" };
-
   // ---------- fill ops ----------
   let ops = [];                    // active ops, ascending n
   let index = new Map();           // depth -> Map(classKey -> [op...])
   let opSeq = 1;
   let undoStack = [], redoStack = [];
   let opsVersion = 0, opsJSONCache = null, opsJSONVersion = -1;
-
   function indexAdd(op, k) {
     let m = index.get(op.d); if (!m) { m = new Map(); index.set(op.d, m); }
     const l = m.get(k); if (l) l.push(op); else m.set(k, [op]);
@@ -192,7 +185,6 @@
     indexRemove(op); opsVersion++;
   }
   function rebuildIndex() { index = new Map(); for (const op of ops) for (const k of op.keys) indexAdd(op, k); opsVersion++; }
-
   // ---------- geometry ----------
   const root = [];
   for (let i = 0; i < 5; i++) {
@@ -204,7 +196,6 @@
     }
   }
   const ROOT_CODES = "ABCDEFGHIJ";
-
   function deflate(T, out) {
     if (T.t === 0) {
       const xx = T.ax + (T.cx - T.ax) * IP2, xy = T.ay + (T.cy - T.ay) * IP2;
@@ -218,7 +209,6 @@
       out.push(["e", { t: 0, ax: T.bx, ay: T.by, bx: T.ax, by: T.ay, cx: zx, cy: zy }]);
     }
   }
-
   // ---------- view ----------
   let W = 0, H = 0, dpr = 1;
   function resize() {
@@ -238,7 +228,6 @@
     return { x0: state.camX - W / 2 / s, x1: state.camX + W / 2 / s, y0: state.camY - H / 2 / s, y1: state.camY + H / 2 / s };
   }
   const toWorld = (sx, sy) => { const s = BASE_SCALE * state.zoom; return [state.camX + (sx - W / 2) / s, state.camY + (sy - H / 2) / s]; };
-
   // ---------- cache of whole tiles around the view ----------
   let cache = null;
   const GRID = 2;
@@ -275,7 +264,6 @@
       }
     }
   }
-
   function buildCache(v) {
     // smaller margin when zoomed far out keeps the tile count manageable
     const padF = state.zoom >= 0.4 ? 0.5 : state.zoom >= 0.15 ? 0.3 : 0.15;
@@ -322,7 +310,6 @@
     regrowAll();
     recolor();
   }
-
   // ---------- classes and colours ----------
   function sigOf(tile, d) {
     let s = tile.sig[d];
@@ -359,7 +346,6 @@
   }
   function tokBefore(tile, limitN) { const op = winner(tile, limitN); return op && op.c ? op.c : baseTok(tile); }
   const tokColor = (tok) => (tok === "K" ? state.kite : tok === "D" ? state.dart : tok);
-
   let capHit = false;
   // Grow one flood op inside the current cache until no more neighbours qualify.
   function grow(op, seeds) {
@@ -392,7 +378,6 @@
     for (const op of ops) if (op.target) grow(op, seedsOf(op));
     if (opsVersion !== before) scheduleSave();
   }
-
   function recolor() {
     if (!cache) return;
     const groups = new Map();
@@ -406,7 +391,6 @@
     cache.groups = groups;
     state.dirty = true;
   }
-
   // ---------- hit testing ----------
   function inPoly(x, y, P) {
     let inside = false;
@@ -425,7 +409,6 @@
     }
     return null;
   }
-
   // ---------- actions / undo ----------
   function pushUndo(a) { undoStack.push(a); if (undoStack.length > 200) undoStack.shift(); redoStack = []; }
   function doAction(a, forward) {
@@ -441,7 +424,6 @@
   function undo() { const a = undoStack.pop(); if (a) { doAction(a, false); redoStack.push(a); afterOpsChanged(); } }
   function redo() { const a = redoStack.pop(); if (a) { doAction(a, true); undoStack.push(a); afterOpsChanged(); } }
   function afterOpsChanged() { recolor(); hover.tile = null; hover.path = null; updateLabels(); scheduleSave(); }
-
   function act(tile, alt) {
     const tool = alt ? "pick" : state.tool;
     if (tool === "pick") { setBrush(tile.color); return; }
@@ -460,7 +442,6 @@
     afterOpsChanged();
     if (capHit) setStatus("Fill reached its size limit", true);
   }
-
   // ---------- hover preview ----------
   const hover = { tile: null, depth: 0, path: null, count: 0 };
   function updateHover(tile) {
@@ -473,7 +454,6 @@
     }
     state.dirty = true;
   }
-
   // ---------- render ----------
   function render() {
     requestAnimationFrame(render);
@@ -482,7 +462,6 @@
     const v = viewRect();
     if (!cacheValid(v)) buildCache(v);
     const s = BASE_SCALE * state.zoom;
-
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = state.stroke;
     ctx.fillRect(0, 0, W, H);
@@ -535,7 +514,6 @@
     $("undoBtn").disabled = !undoStack.length; $("redoBtn").disabled = !redoStack.length;
     $("undoBtn").style.opacity = undoStack.length ? 1 : 0.45; $("redoBtn").style.opacity = redoStack.length ? 1 : 0.45;
   }
-
   // ---------- colours / UI ----------
   function hsl(h, s, l) {
     s /= 100; l /= 100;
@@ -594,7 +572,6 @@
     arcsBtn.classList.toggle("active", on);
     state.dirty = true;
   }
-
   // ---------- interaction ----------
   function zoomAt(factor, sx, sy) {
     const s0 = BASE_SCALE * state.zoom;
@@ -604,7 +581,6 @@
     state.camX = wx - (sx - W / 2) / s1; state.camY = wy - (sy - H / 2) / s1;
     clampView(); state.dirty = true;
   }
-
   const ptrs = new Map();
   let pinch = null, press = null;
   function pinchInfo() {
@@ -612,7 +588,6 @@
     return { d: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y), x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
   }
   canvas.addEventListener("pointerdown", (e) => {
-    if (uiHidden) { e.preventDefault(); showUI(); return; }   // v6: first touch/click only reveals the controls
     if (e.button === 2) return;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -645,8 +620,12 @@
     if (!ptrs.has(e.pointerId)) return;
     ptrs.delete(e.pointerId);
     if (press && e.type === "pointerup" && !ptrs.size) {
-      const t = tileAt(...toWorld(press.x, press.y));
-      if (t) act(t, press.alt || e.altKey);
+      const alt = press.alt || e.altKey;
+      if (uiHidden) hiddenTap(press.x, press.y, alt);       // v7: wait to see if it's a double-tap
+      else {
+        const t = tileAt(...toWorld(press.x, press.y));
+        if (t) act(t, alt);
+      }
     }
     press = null;
     pinch = ptrs.size === 2 ? pinchInfo() : null;
@@ -659,16 +638,37 @@
   canvas.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
   canvas.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
   document.addEventListener("gesturestart", (e) => e.preventDefault());
-
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     let dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? H : 1);
     if (e.ctrlKey) dy *= 3;
     zoomAt(Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.002), e.clientX, e.clientY);
   }, { passive: false });
-
-  // ---------- v6: hide / show controls ----------
-  let uiHidden = false;
+  // ---------- v6/v7: hide / show controls ----------
+  // v7: while hidden, pan / pinch / scroll-zoom / taps all work normally and the
+  // controls stay hidden. Only a double-click / double-tap (or H / Esc) shows them.
+  // A single tap is held for DBL_MS so the two taps of a double-tap never paint.
+  const DBL_MS = 320, DBL_PX = 30;
+  let uiHidden = false, pendingTap = null;
+  function flushPendingTap() {
+    if (!pendingTap) return;
+    const p = pendingTap; pendingTap = null;
+    clearTimeout(p.timer);
+    p.fire();
+  }
+  function cancelPendingTap() { if (pendingTap) { clearTimeout(pendingTap.timer); pendingTap = null; } }
+  function hiddenTap(sx, sy, alt) {
+    const now = performance.now();
+    if (pendingTap && now - pendingTap.time < DBL_MS && Math.hypot(sx - pendingTap.x, sy - pendingTap.y) < DBL_PX) {
+      cancelPendingTap(); showUI(); return;                // double-tap / double-click
+    }
+    flushPendingTap();                                     // an unrelated earlier tap still counts
+    const [wx, wy] = toWorld(sx, sy);                      // world point fixed at tap time
+    const tap = { x: sx, y: sy, time: now, timer: 0,
+                  fire: () => { const t = tileAt(wx, wy); if (t) act(t, alt); } };
+    tap.timer = setTimeout(() => { if (pendingTap === tap) { pendingTap = null; tap.fire(); } }, DBL_MS);
+    pendingTap = tap;
+  }
   function hideUI() {
     uiHidden = true;
     document.body.classList.add("ui-hidden");
@@ -677,11 +677,11 @@
     updateHover(null);
   }
   function showUI() {
+    cancelPendingTap();
     uiHidden = false;
     document.body.classList.remove("ui-hidden");
   }
   $("hideBtn").addEventListener("click", (e) => { e.stopPropagation(); hideUI(); });
-
   function reset() { state.camX = 0; state.camY = 0; state.zoom = 1; clampView(); state.dirty = true; }
   window.addEventListener("keydown", (e) => {
     const tag = e.target.tagName;
@@ -708,7 +708,6 @@
       if (m) { e.preventDefault(); state.camX += m[0] * step; state.camY += m[1] * step; clampView(); state.dirty = true; }
     }
   });
-
   for (const k in toolBtns) toolBtns[k].addEventListener("click", () => setTool(k));
   brushInput.addEventListener("input", (e) => setBrush(e.target.value));
   brushInput.addEventListener("change", (e) => pushRecent(e.target.value));
@@ -726,7 +725,6 @@
   kiteInput.addEventListener("input", (e) => { state.kite = e.target.value; syncColors(); });
   dartInput.addEventListener("input", (e) => { state.dart = e.target.value; syncColors(); });
   window.addEventListener("resize", resize);
-
   /* =====================================================================
    * 4. Saved colourings (auto-save, same approach as the P2 Sandbox index.html)
    * localStorage:
@@ -739,7 +737,6 @@
   const SAVE_DELAY = 600;
   const mosaicSel = $("mosaicSel"), saveStatus = $("saveStatus");
   let mosaics = {}, currentId = null, lastSavedJSON = "", saveTimer = 0, storageOK = true;
-
   function loadStore() {
     try {
       mosaics = JSON.parse(localStorage.getItem(LS_MOSAICS) || "{}") || {};
@@ -757,7 +754,6 @@
   }
   function setStatus(txt, isErr = false) { saveStatus.textContent = txt; saveStatus.classList.toggle("err", isErr); }
   const r4 = (v) => Math.round(v * 1e4) / 1e4;
-
   function opsJSON() {
     if (opsJSONVersion !== opsVersion) {
       opsJSONCache = JSON.stringify(ops.map((o) => [o.n, o.d, o.c, o.target, [...o.keys]]));
@@ -905,7 +901,6 @@
     try { const other = JSON.parse(e.newValue || "{}"); if (mosaics[currentId]) other[currentId] = mosaics[currentId]; mosaics = other; } catch (_) {}
     refreshMosaicList();
   });
-
   // ---------- boot ----------
   resize();
   const lastId = loadStore();
