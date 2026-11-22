@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Infinite Penrose Kite &amp; Dart Explorer v5</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #f1f5f9; touch-action: none; overscroll-behavior: none; }
+  #canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  #canvas.dragging { cursor: grabbing; }
+  .hud-header { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px; display: flex;
+    justify-content: space-between; align-items: flex-start; pointer-events: none; gap: 10px; z-index: 10; }
+  .glass { pointer-events: auto; background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+  .title { padding: 9px 12px; display: flex; flex-direction: column; gap: 7px; max-width: min(96vw, 640px); }
+  .title h1 { margin: 0; font-size: 15px; font-weight: 700; }
+  .title h1 span { color: #7dd3fc; }
+  .title p { margin: 0; font-size: 11.5px; color: #94a3b8; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .stats { padding: 8px 12px; font-size: 11.5px; font-variant-numeric: tabular-nums; color: #cbd5e1; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .stats .muted { color: #64748b; font-size: 10.5px; }
+  .dock { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    width: min(96vw, 900px); padding: 9px 11px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
+  .dock .row { justify-content: space-between; }
+  .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .swatch { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 11px;
+    background: rgba(30,41,59,0.72); border: 1px solid rgba(255,255,255,0.12); font-size: 12.5px; font-weight: 600; cursor: pointer; min-height: 36px; }
+  .dot { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid rgba(255,255,255,0.65); }
+  .swatch input[type="color"] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; border: none; padding: 0; }
+  .brush { width: 26px; height: 26px; border-radius: 8px; }
+  #recent { display: flex; gap: 4px; flex-wrap: wrap; }
+  #recent button { width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 6px; border: 1.5px solid rgba(255,255,255,0.5); }
+  button, select { appearance: none; border: 1px solid rgba(255,255,255,0.14); background: rgba(30,41,59,0.85); color: #f8fafc;
+    font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 11px; border-radius: 11px; cursor: pointer; min-height: 36px; white-space: nowrap; }
+  select { max-width: 160px; }
+  button:hover, select:hover { background: rgba(51,65,85,0.95); }
+  button:active { transform: scale(0.96); }
+  button.primary { background: linear-gradient(135deg, #3b82f6, #6366f1); color: #fff; }
+  button.active { background: rgba(14,165,233,0.25); border-color: #38bdf8; color: #7dd3fc; }
+  .depth { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 11px;
+    background: rgba(30,41,59,0.72); border: 1px solid rgba(255,255,255,0.12); min-height: 36px; }
+  .depth input { width: 130px; accent-color: #38bdf8; }
+  .depth output { min-width: 66px; color: #7dd3fc; font-variant-numeric: tabular-nums; }
+  #saveStatus { font-size: 11.5px; color: #94a3b8; min-width: 48px; }
+  #saveStatus.err { color: #fca5a5; }
+  @media (max-width: 640px) { .title p { display: none; } .depth input { width: 90px; } }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div class="hud-header">
+  <div class="glass title">
+    <h1>Infinite Penrose P2 Explorer <span>v5</span></h1>
+    <p>Click a tile to fill &bull; fills keep spreading as you pan &bull; matching arrangements are filled everywhere &bull; drag to pan &bull; scroll / pinch to zoom &bull; Alt+click picks a colour &bull; Ctrl+Z undo</p>
+    <div class="row">
+      <button id="newMosaic" title="Start a new colouring (current one stays saved)">New</button>
+      <select id="mosaicSel" title="Open a saved colouring"></select>
+      <button id="renameMosaic">Rename</button>
+      <button id="deleteMosaic">Delete</button>
+      <span id="saveStatus"></span>
+    </div>
+  </div>
+  <div class="glass stats">
+    <span id="zoomLabel">Zoom: 1.00×</span>
+    <span class="muted" id="tileLabel">Tiles: 0</span>
+    <span class="muted" id="fillLabel">Fills: 0</span>
+  </div>
+</div>
+
+<div class="glass dock">
+  <div class="row">
+    <div class="group">
+      <button id="toolFill" title="Flood fill: connected tiles of the same colour (F)">Fill</button>
+      <button id="toolTile" title="Colour a single tile (T)">Tile</button>
+      <button id="toolErase" title="Erase fill back to the base colour (E)">Erase</button>
+      <button id="toolPick" title="Pick a colour from a tile (I, or Alt+click)">Pick</button>
+    </div>
+    <div class="group">
+      <label class="swatch" title="Fill colour"><span class="dot brush" id="brushDot"></span><input type="color" id="brushInput" /></label>
+      <div id="recent"></div>
+    </div>
+    <label class="depth" title="How large an arrangement must match for a fill to be copied. Low = small local pattern, copied very often. High = large cluster, copied rarely. Last step = this tile only.">
+      Match depth <input type="range" id="depthInput" min="1" max="13" step="1" /> <output id="depthOut"></output>
+    </label>
+  </div>
+  <div class="row">
+    <div class="group">
+      <label class="swatch" title="Base kite colour"><span class="dot" id="kiteDot"></span><span>Kites</span><input type="color" id="kiteInput" /></label>
+      <label class="swatch" title="Base dart colour"><span class="dot" id="dartDot"></span><span>Darts</span><input type="color" id="dartInput" /></label>
+      <button id="randomBtn" title="Randomize base kite/dart colours">Randomize</button>
+      <button id="arcsBtn">Arcs: Off</button>
+    </div>
+    <div class="group">
+      <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redoBtn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
+      <button id="clearBtn" title="Remove all fills">Clear fills</button>
+      <button id="resetBtn" title="Reset view (0)">Reset view</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  /* =====================================================================
+   * 1. Tiling (unchanged from v3/v4)
+   * Penrose P2 from Robinson half-tiles, deflated to ONE fixed level so every
+   * kite/dart is identical in size; mirrored halves merged into whole tiles.
+   *  half-kite -> dart(X,A,Y) 'a', kite(C,Y,X) 'b', kite(C,Y,B) 'c'
+   *  half-dart -> dart(Z,C,A) 'd', kite(B,A,Z) 'e'
+   *
+   * 2. Pattern matching ("match depth", unchanged)
+   * A tile's class at depth k = sorted pair of its two halves' last-k deflation
+   * letters. Tiles of the same class sit at the same spot inside identical level-k
+   * supertiles, so colouring a class replicates the fill wherever that arrangement
+   * occurs. Depth 13 ("this tile") uses the full history = unique per tile.
+   *
+   * 3. Persistent flood fills (new in v5)
+   * Each action is stored as a fill op: {n, d, c, target, keys}
+   *   n      = order (later ops paint over earlier ones)
+   *   d      = match depth, keys = set of classes at that depth it colours
+   *   c      = colour (null = erase back to base)
+   *   target = colour token the flood spreads through ("K" base kite, "D" base dart,
+   *            or a hex fill colour); null for Tile/Erase (no spreading)
+   * Whenever a new region is generated (pan/zoom), every flood op is re-grown in
+   * order: from every tile it colours, it spreads into neighbours that showed the
+   * op's target colour just before that op, adding their classes. So a flood that
+   * was clipped by the screen edge continues into newly visible tiles, exactly as
+   * if the whole plane had existed when you clicked.
+   * ===================================================================== */
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const IP = 1 / PHI, IP2 = IP * IP;
+  const ROOT_LEVEL = 32;
+  const ROOT_R = Math.pow(PHI, ROOT_LEVEL);
+  const FIXED_LEVEL = ROOT_LEVEL;
+  const BASE_SCALE = 70;
+  const MIN_ZOOM = 0.06, MAX_ZOOM = 12;
+  const FULL_DEPTH = 99;           // "this tile only"
+  const MAX_KEYS = 12000;          // safety cap on classes per fill op (bounds storage)
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const $ = (id) => document.getElementById(id);
+  const kiteDot = $("kiteDot"), dartDot = $("dartDot"), kiteInput = $("kiteInput"), dartInput = $("dartInput");
+  const brushDot = $("brushDot"), brushInput = $("brushInput"), recentEl = $("recent");
+  const depthInput = $("depthInput"), depthOut = $("depthOut");
+  const arcsBtn = $("arcsBtn"), zoomLabel = $("zoomLabel"), tileLabel = $("tileLabel"), fillLabel = $("fillLabel");
+  const toolBtns = { fill: $("toolFill"), tile: $("toolTile"), erase: $("toolErase"), pick: $("toolPick") };
+
+  const state = { kite: "#2563eb", dart: "#f59e0b", stroke: "#0b1020", arc0: "#fde047", arc1: "#38bdf8",
+                  arcs: false, camX: 0, camY: 0, zoom: 1, dirty: true,
+                  brush: "#ef4444", recent: ["#ef4444", "#22c55e", "#a855f7", "#f8fafc", "#0f172a", "#14b8a6"],
+                  depth: 4, tool: "fill" };
+
+  // ---------- fill ops ----------
+  let ops = [];                    // active ops, ascending n
+  let index = new Map();           // depth -> Map(classKey -> [op...])
+  let opSeq = 1;
+  let undoStack = [], redoStack = [];
+  let opsVersion = 0, opsJSONCache = null, opsJSONVersion = -1;
+
+  function indexAdd(op, k) {
+    let m = index.get(op.d); if (!m) { m = new Map(); index.set(op.d, m); }
+    const l = m.get(k); if (l) l.push(op); else m.set(k, [op]);
+  }
+  function indexRemove(op) {
+    const m = index.get(op.d); if (!m) return;
+    for (const k of op.keys) {
+      const l = m.get(k); if (!l) continue;
+      const i = l.indexOf(op); if (i >= 0) l.splice(i, 1);
+      if (!l.length) m.delete(k);
+    }
+    if (!m.size) index.delete(op.d);
+  }
+  function addKey(op, k) { op.keys.add(k); indexAdd(op, k); opsVersion++; }
+  function insertOp(op) {
+    let i = ops.length; while (i > 0 && ops[i - 1].n > op.n) i--;
+    ops.splice(i, 0, op);
+    for (const k of op.keys) indexAdd(op, k);
+    opsVersion++;
+  }
+  function removeOp(op) {
+    const i = ops.indexOf(op); if (i >= 0) ops.splice(i, 1);
+    indexRemove(op); opsVersion++;
+  }
+  function rebuildIndex() { index = new Map(); for (const op of ops) for (const k of op.keys) indexAdd(op, k); opsVersion++; }
+
+  // ---------- geometry ----------
+  const root = [];
+  for (let i = 0; i < 5; i++) {
+    const th = i * 2 * Math.PI / 5 - Math.PI / 2;
+    const bx = ROOT_R * Math.cos(th), by = ROOT_R * Math.sin(th);
+    for (const sg of [1, -1]) {
+      const c = th + sg * Math.PI / 5;
+      root.push({ t: 0, ax: 0, ay: 0, bx, by, cx: ROOT_R * Math.cos(c), cy: ROOT_R * Math.sin(c) });
+    }
+  }
+  const ROOT_CODES = "ABCDEFGHIJ";
+
+  function deflate(T, out) {
+    if (T.t === 0) {
+      const xx = T.ax + (T.cx - T.ax) * IP2, xy = T.ay + (T.cy - T.ay) * IP2;
+      const yx = T.ax + (T.bx - T.ax) * IP,  yy = T.ay + (T.by - T.ay) * IP;
+      out.push(["a", { t: 1, ax: xx, ay: xy, bx: T.ax, by: T.ay, cx: yx, cy: yy }]);
+      out.push(["b", { t: 0, ax: T.cx, ay: T.cy, bx: yx, by: yy, cx: xx, cy: xy }]);
+      out.push(["c", { t: 0, ax: T.cx, ay: T.cy, bx: yx, by: yy, cx: T.bx, cy: T.by }]);
+    } else {
+      const zx = T.cx + (T.bx - T.cx) * IP2, zy = T.cy + (T.by - T.cy) * IP2;
+      out.push(["d", { t: 1, ax: zx, ay: zy, bx: T.cx, by: T.cy, cx: T.ax, cy: T.ay }]);
+      out.push(["e", { t: 0, ax: T.bx, ay: T.by, bx: T.ax, by: T.ay, cx: zx, cy: zy }]);
+    }
+  }
+
+  // ---------- view ----------
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    clampView();
+    state.dirty = true;
+  }
+  function clampView() {
+    state.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.zoom));
+    const lim = 0.3 * ROOT_R, d = Math.hypot(state.camX, state.camY);
+    if (d > lim) { state.camX *= lim / d; state.camY *= lim / d; }
+  }
+  function viewRect() {
+    const s = BASE_SCALE * state.zoom;
+    return { x0: state.camX - W / 2 / s, x1: state.camX + W / 2 / s, y0: state.camY - H / 2 / s, y1: state.camY + H / 2 / s };
+  }
+  const toWorld = (sx, sy) => { const s = BASE_SCALE * state.zoom; return [state.camX + (sx - W / 2) / s, state.camY + (sy - H / 2) / s]; };
+
+  // ---------- cache of whole tiles around the view ----------
+  let cache = null;
+  const GRID = 2;
+  function cacheValid(v) {
+    if (!cache) return false;
+    const r = cache.r;
+    if (v.x0 < r.x0 || v.x1 > r.x1 || v.y0 < r.y0 || v.y1 > r.y1) return false;
+    const va = (v.x1 - v.x0) * (v.y1 - v.y0), ca = (r.x1 - r.x0) * (r.y1 - r.y0);
+    return ca < va * 12;
+  }
+  const mk = (x2, y2) => Math.round(x2 * 500) + "," + Math.round(y2 * 500);   // key from doubled midpoint
+  function normAng(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+  function arcAt(path, cx, cy, r, px, py, qx, qy) {
+    const a1 = Math.atan2(py - cy, px - cx), d = normAng(Math.atan2(qy - cy, qx - cx) - a1);
+    path.moveTo(cx + r * Math.cos(a1), cy + r * Math.sin(a1));
+    path.arc(cx, cy, r, a1, a1 + d, d < 0);
+  }
+  function polyPath(p, P) { p.moveTo(P[0], P[1]); p.lineTo(P[2], P[3]); p.lineTo(P[4], P[5]); p.lineTo(P[6], P[7]); p.closePath(); }
+  // Draw directly into the context each frame (only tiles in view); much faster than huge Path2D objects.
+  let VR = null;
+  const inView = (t) => t.x > VR.x0 && t.x < VR.x1 && t.y > VR.y0 && t.y < VR.y1;
+  function tracePolys(list) { ctx.beginPath(); for (const t of list) if (inView(t)) polyPath(ctx, t.P); }
+  function traceArcs(list, which) {
+    // P = [A, C, B, M]: A,B on the mirror axis; C and M = the two side vertices
+    ctx.beginPath();
+    for (const t of list) {
+      if (!inView(t)) continue;
+      const P = t.P, ax = P[0], ay = P[1], bx = P[4], by = P[5];
+      const len = Math.hypot(bx - ax, by - ay);
+      for (const s of [2, 6]) {
+        const cx = P[s], cy = P[s + 1];
+        if (t.t === 0) { if (which === 0) arcAt(ctx, ax, ay, len * IP, bx, by, cx, cy); else arcAt(ctx, bx, by, len * IP2, ax, ay, cx, cy); }
+        else           { if (which === 0) arcAt(ctx, bx, by, len * IP, ax, ay, cx, cy); else arcAt(ctx, ax, ay, len * IP2, bx, by, cx, cy); }
+      }
+    }
+  }
+
+  function buildCache(v) {
+    // smaller margin when zoomed far out keeps the tile count manageable
+    const padF = state.zoom >= 0.4 ? 0.5 : state.zoom >= 0.15 ? 0.3 : 0.15;
+    const pw = (v.x1 - v.x0) * padF + 2, ph = (v.y1 - v.y0) * padF + 2;
+    const r = { x0: v.x0 - pw, x1: v.x1 + pw, y0: v.y0 - ph, y1: v.y1 + ph };
+    const leaves = [], stack = root.map((T, i) => [T, 0, ROOT_CODES[i]]), kids = [];
+    while (stack.length) {
+      const [T, lvl, path] = stack.pop();
+      if (Math.min(T.ax, T.bx, T.cx) > r.x1 || Math.max(T.ax, T.bx, T.cx) < r.x0 ||
+          Math.min(T.ay, T.by, T.cy) > r.y1 || Math.max(T.ay, T.by, T.cy) < r.y0) continue;
+      if (lvl < FIXED_LEVEL) { kids.length = 0; deflate(T, kids); for (const [code, k] of kids) stack.push([k, lvl + 1, path + code]); }
+      else { T.path = path; leaves.push(T); }
+    }
+    const tiles = [], bySeam = new Map();
+    let nK = 0, nD = 0;
+    for (const T of leaves) {
+      const key = mk(T.ax + T.bx, T.ay + T.by);          // seam = edge AB, keyed by its midpoint
+      const twin = bySeam.get(key);
+      if (twin) { twin.pB = T.path; continue; }
+      const dx = T.bx - T.ax, dy = T.by - T.ay, L2 = dx * dx + dy * dy;
+      const u = ((T.cx - T.ax) * dx + (T.cy - T.ay) * dy) / L2;
+      const mx = 2 * (T.ax + dx * u) - T.cx, my = 2 * (T.ay + dy * u) - T.cy;
+      const P = [T.ax, T.ay, T.cx, T.cy, T.bx, T.by, mx, my];
+      const tile = { id: tiles.length, t: T.t, P, pA: T.path, pB: null, sig: {}, color: null, tok: null, nb: [],
+                     x: (T.ax + T.bx) / 2, y: (T.ay + T.by) / 2 };
+      tiles.push(tile); bySeam.set(key, tile);
+      if (T.t === 0) nK++; else nD++;
+    }
+    const edges = new Map(), grid = new Map();
+    for (const tile of tiles) {
+      const P = tile.P;
+      for (let i = 0; i < 4; i++) {
+        const j = (i + 1) % 4;
+        const ek = mk(P[2 * i] + P[2 * j], P[2 * i + 1] + P[2 * j + 1]);   // edge midpoint (x2)
+        const o = edges.get(ek);
+        if (o) { o.nb.push(tile.id); tile.nb.push(o.id); edges.delete(ek); } else edges.set(ek, tile);
+      }
+      const gx = Math.floor(tile.x / GRID), gy = Math.floor(tile.y / GRID);
+      const gk = gx + "," + gy;
+      (grid.get(gk) || grid.set(gk, []).get(gk)).push(tile);
+    }
+    cache = { r, tiles, grid, nK, nD, groups: null, sigIdx: new Map() };
+    hover.tile = null; hover.path = null;
+    regrowAll();
+    recolor();
+  }
+
+  // ---------- classes and colours ----------
+  function sigOf(tile, d) {
+    let s = tile.sig[d];
+    if (s !== undefined) return s;
+    let a, b;
+    if (d === FULL_DEPTH) { a = tile.pA; b = tile.pB || "?"; }
+    else { a = tile.pA.slice(-d); b = tile.pB ? tile.pB.slice(-d) : "?"; }
+    s = a < b ? a + "|" + b : b + "|" + a;
+    tile.sig[d] = s;
+    return s;
+  }
+  function sigIndex(d) {                 // classKey -> tiles in cache, per depth (lazy)
+    let m = cache.sigIdx.get(d);
+    if (m) return m;
+    m = new Map();
+    for (const t of cache.tiles) {
+      if (!t.pB) continue;
+      const k = sigOf(t, d), l = m.get(k);
+      if (l) l.push(t); else m.set(k, [t]);
+    }
+    cache.sigIdx.set(d, m);
+    return m;
+  }
+  const baseTok = (t) => (t.t === 0 ? "K" : "D");
+  function winner(tile, limitN) {        // highest op (n < limitN) that colours this tile
+    let best = null;
+    if (!tile.pB) return null;
+    for (const [d, m] of index) {
+      const l = m.get(sigOf(tile, d));
+      if (!l) continue;
+      for (const op of l) if (op.n < limitN && (!best || op.n > best.n)) best = op;
+    }
+    return best;
+  }
+  function tokBefore(tile, limitN) { const op = winner(tile, limitN); return op && op.c ? op.c : baseTok(tile); }
+  const tokColor = (tok) => (tok === "K" ? state.kite : tok === "D" ? state.dart : tok);
+
+  let capHit = false;
+  // Grow one flood op inside the current cache until no more neighbours qualify.
+  function grow(op, seeds) {
+    if (!op.target || !cache) return;
+    const d = op.d, sIdx = sigIndex(d), seen = new Set(), q = [];
+    for (const t of seeds) { if (!seen.has(t.id)) { seen.add(t.id); q.push(t); } }
+    while (q.length) {
+      const t = q.pop();
+      for (const id of t.nb) {
+        if (seen.has(id)) continue;
+        const nbt = cache.tiles[id];
+        if (!nbt.pB) continue;
+        const k = sigOf(nbt, d);
+        if (op.keys.has(k)) { seen.add(id); continue; }
+        if (tokBefore(nbt, op.n) !== op.target) continue;
+        if (op.keys.size >= MAX_KEYS) { capHit = true; return; }
+        addKey(op, k);
+        for (const m of sIdx.get(k) || []) if (!seen.has(m.id)) { seen.add(m.id); q.push(m); }
+      }
+    }
+  }
+  function seedsOf(op) {
+    const sIdx = sigIndex(op.d), out = [];
+    for (const k of op.keys) { const l = sIdx.get(k); if (l) for (const t of l) out.push(t); }
+    return out;
+  }
+  function regrowAll() {
+    if (!cache) return;
+    const before = opsVersion;
+    for (const op of ops) if (op.target) grow(op, seedsOf(op));
+    if (opsVersion !== before) scheduleSave();
+  }
+
+  function recolor() {
+    if (!cache) return;
+    const groups = new Map();
+    for (const tile of cache.tiles) {
+      const op = winner(tile, Infinity);
+      tile.tok = op && op.c ? op.c : baseTok(tile);
+      tile.color = tokColor(tile.tok);
+      const g = groups.get(tile.color);
+      if (g) g.push(tile); else groups.set(tile.color, [tile]);
+    }
+    cache.groups = groups;
+    state.dirty = true;
+  }
+
+  // ---------- hit testing ----------
+  function inPoly(x, y, P) {
+    let inside = false;
+    for (let i = 0, j = 3; i < 4; j = i++) {
+      const xi = P[2 * i], yi = P[2 * i + 1], xj = P[2 * j], yj = P[2 * j + 1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function tileAt(wx, wy) {
+    if (!cache) return null;
+    const gx = Math.floor(wx / GRID), gy = Math.floor(wy / GRID);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const list = cache.grid.get((gx + i) + "," + (gy + j));
+      if (list) for (const t of list) if (inPoly(wx, wy, t.P)) return t;
+    }
+    return null;
+  }
+
+  // ---------- actions / undo ----------
+  function pushUndo(a) { undoStack.push(a); if (undoStack.length > 200) undoStack.shift(); redoStack = []; }
+  function doAction(a, forward) {
+    if (a.type === "add") { if (forward) insertOp(a.op); else removeOp(a.op); }
+    else if (a.type === "clear") {
+      if (forward) { ops = []; rebuildIndex(); }
+      else { ops = a.ops.slice(); rebuildIndex(); }
+    }
+    // re-grow so restored/remaining floods continue into the current region
+    if (cache) cache.sigIdx = cache.sigIdx;   // index stays valid (geometry unchanged)
+    regrowAll();
+  }
+  function undo() { const a = undoStack.pop(); if (a) { doAction(a, false); redoStack.push(a); afterOpsChanged(); } }
+  function redo() { const a = redoStack.pop(); if (a) { doAction(a, true); undoStack.push(a); afterOpsChanged(); } }
+  function afterOpsChanged() { recolor(); hover.tile = null; hover.path = null; updateLabels(); scheduleSave(); }
+
+  function act(tile, alt) {
+    const tool = alt ? "pick" : state.tool;
+    if (tool === "pick") { setBrush(tile.color); return; }
+    if (!tile.pB) return;
+    const d = state.depth === 13 ? FULL_DEPTH : state.depth;
+    const c = tool === "erase" ? null : state.brush;
+    const cur = tile.tok;
+    if (tool === "fill" && cur === c) return;                // already this colour
+    const op = { n: opSeq++, d, c, target: tool === "fill" ? cur : null, keys: new Set() };
+    insertOp(op);
+    addKey(op, sigOf(tile, d));
+    capHit = false;
+    grow(op, seedsOf(op));
+    pushUndo({ type: "add", op });
+    if (tool !== "erase") pushRecent(state.brush);
+    afterOpsChanged();
+    if (capHit) setStatus("Fill reached its size limit", true);
+  }
+
+  // ---------- hover preview ----------
+  const hover = { tile: null, depth: 0, path: null, count: 0 };
+  function updateHover(tile) {
+    const d = state.depth === 13 ? FULL_DEPTH : state.depth;
+    if (tile === hover.tile && d === hover.depth) return;
+    hover.tile = tile; hover.depth = d; hover.path = null; hover.count = 0;
+    if (tile && tile.pB && state.tool !== "pick") {
+      const list = sigIndex(d).get(sigOf(tile, d)) || [];
+      hover.path = list; hover.count = list.length;
+    }
+    state.dirty = true;
+  }
+
+  // ---------- render ----------
+  function render() {
+    requestAnimationFrame(render);
+    if (!state.dirty) return;
+    state.dirty = false;
+    const v = viewRect();
+    if (!cacheValid(v)) buildCache(v);
+    const s = BASE_SCALE * state.zoom;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = state.stroke;
+    ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (W / 2 - state.camX * s), dpr * (H / 2 - state.camY * s));
+    ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+    const px = 1 / s;
+    const showLines = s >= 9;            // outlines only while a kite edge is ≥ ~9 px
+    VR = { x0: v.x0 - 1.2, x1: v.x1 + 1.2, y0: v.y0 - 1.2, y1: v.y1 + 1.2 };
+    for (const [c, list] of cache.groups) {
+      // fill in small batches: one giant path rasterizes very slowly when zoomed out
+      ctx.fillStyle = c;
+      let n = 0; ctx.beginPath();
+      for (const t of list) {
+        if (!inView(t)) continue;
+        polyPath(ctx, t.P);
+        if (++n === 150) { ctx.fill(); ctx.beginPath(); n = 0; }
+      }
+      if (n) ctx.fill();
+    }
+    if (state.arcs && s >= 6) {
+      ctx.lineWidth = Math.max(0.035, 0.6 * px);
+      traceArcs(cache.tiles, 0); ctx.strokeStyle = state.arc0; ctx.stroke();
+      traceArcs(cache.tiles, 1); ctx.strokeStyle = state.arc1; ctx.stroke();
+    }
+    ctx.lineWidth = Math.max(0.022, 1 * px);
+    if (showLines) {
+      ctx.strokeStyle = state.stroke;
+      let n = 0; ctx.beginPath();
+      for (const t of cache.tiles) {
+        if (!inView(t)) continue;
+        polyPath(ctx, t.P);
+        if (++n === 150) { ctx.stroke(); ctx.beginPath(); n = 0; }
+      }
+      if (n) ctx.stroke();
+    }
+    if (hover.path) {
+      tracePolys(hover.path);
+      ctx.lineWidth = Math.max(0.05, 2.2 * px);
+      ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.stroke();
+      ctx.lineWidth = Math.max(0.02, 0.9 * px);
+      ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.stroke();
+    }
+    zoomLabel.textContent = "Zoom: " + state.zoom.toFixed(2) + "×";
+    tileLabel.textContent = "Generated: " + cache.nK.toLocaleString() + " kites · " + cache.nD.toLocaleString() + " darts" +
+      (hover.path ? " · " + hover.count + " matches nearby" : "");
+    scheduleSave();
+  }
+  function updateLabels() {
+    fillLabel.textContent = "Fills: " + ops.length.toLocaleString();
+    $("undoBtn").disabled = !undoStack.length; $("redoBtn").disabled = !redoStack.length;
+    $("undoBtn").style.opacity = undoStack.length ? 1 : 0.45; $("redoBtn").style.opacity = redoStack.length ? 1 : 0.45;
+  }
+
+  // ---------- colours / UI ----------
+  function hsl(h, s, l) {
+    s /= 100; l /= 100;
+    const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const hx = (x) => Math.round(255 * x).toString(16).padStart(2, "0");
+    return "#" + hx(f(0)) + hx(f(8)) + hx(f(4));
+  }
+  function lum(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255;
+  }
+  function syncColors() {
+    kiteDot.style.background = state.kite; dartDot.style.background = state.dart;
+    kiteInput.value = state.kite; dartInput.value = state.dart;
+    const L = (lum(state.kite) + lum(state.dart)) / 2;
+    state.arc0 = L > 0.55 ? "#b91c1c" : "#fde047";
+    state.arc1 = L > 0.55 ? "#0369a1" : "#7dd3fc";
+    recolor();
+    scheduleSave();
+  }
+  function randomize() {
+    const h1 = Math.random() * 360, h2 = (h1 + 115 + Math.random() * 130) % 360, inv = Math.random() > 0.5;
+    state.kite = hsl(h1, 62 + Math.random() * 28, inv ? 38 + Math.random() * 16 : 54 + Math.random() * 18);
+    state.dart = hsl(h2, 65 + Math.random() * 28, inv ? 56 + Math.random() * 18 : 36 + Math.random() * 16);
+    syncColors();
+  }
+  function setBrush(c) { state.brush = c; brushDot.style.background = c; brushInput.value = c; if (state.tool === "pick" || state.tool === "erase") setTool("fill"); scheduleSave(); }
+  function pushRecent(c) {
+    state.recent = [c, ...state.recent.filter((x) => x !== c)].slice(0, 10);
+    renderRecent();
+  }
+  function renderRecent() {
+    recentEl.innerHTML = "";
+    for (const c of state.recent) {
+      const b = document.createElement("button");
+      b.style.background = c; b.title = c;
+      b.addEventListener("click", () => setBrush(c));
+      recentEl.appendChild(b);
+    }
+  }
+  function setTool(t) {
+    state.tool = t;
+    for (const k in toolBtns) toolBtns[k].classList.toggle("active", k === t);
+    hover.tile = null; hover.path = null; state.dirty = true;
+  }
+  function setDepth(v) {
+    state.depth = Math.min(13, Math.max(1, v | 0));
+    depthInput.value = state.depth;
+    depthOut.textContent = state.depth === 13 ? "This tile" : "Level " + state.depth;
+    hover.tile = null; hover.path = null; state.dirty = true;
+  }
+  function setArcs(on) {
+    state.arcs = on;
+    arcsBtn.textContent = on ? "Arcs: On" : "Arcs: Off";
+    arcsBtn.classList.toggle("active", on);
+    state.dirty = true;
+  }
+
+  // ---------- interaction ----------
+  function zoomAt(factor, sx, sy) {
+    const s0 = BASE_SCALE * state.zoom;
+    const wx = state.camX + (sx - W / 2) / s0, wy = state.camY + (sy - H / 2) / s0;
+    state.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.zoom * factor));
+    const s1 = BASE_SCALE * state.zoom;
+    state.camX = wx - (sx - W / 2) / s1; state.camY = wy - (sy - H / 2) / s1;
+    clampView(); state.dirty = true;
+  }
+
+  const ptrs = new Map();
+  let pinch = null, press = null;
+  function pinchInfo() {
+    const p = [...ptrs.values()];
+    return { d: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y), x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+  }
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button === 2) return;
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) press = { x: e.clientX, y: e.clientY, alt: e.altKey };
+    else press = null;
+    pinch = ptrs.size === 2 ? pinchInfo() : null;
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const prev = ptrs.get(e.pointerId);
+    if (!prev) {
+      if (e.pointerType === "mouse" && cache) updateHover(tileAt(...toWorld(e.clientX, e.clientY)));
+      return;
+    }
+    const cur = { x: e.clientX, y: e.clientY };
+    ptrs.set(e.pointerId, cur);
+    if (press && Math.hypot(cur.x - press.x, cur.y - press.y) > 6) { press = null; canvas.classList.add("dragging"); }
+    if (press) return;
+    const scale = BASE_SCALE * state.zoom;
+    if (ptrs.size === 1) {
+      state.camX -= (cur.x - prev.x) / scale; state.camY -= (cur.y - prev.y) / scale;
+      clampView(); state.dirty = true;
+    } else if (ptrs.size === 2 && pinch) {
+      const n = pinchInfo();
+      state.camX -= (n.x - pinch.x) / scale; state.camY -= (n.y - pinch.y) / scale;
+      if (pinch.d > 4 && n.d > 4) zoomAt(n.d / pinch.d, n.x, n.y);
+      pinch = n; clampView(); state.dirty = true;
+    }
+  });
+  function up(e) {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.delete(e.pointerId);
+    if (press && e.type === "pointerup" && !ptrs.size) {
+      const t = tileAt(...toWorld(press.x, press.y));
+      if (t) act(t, press.alt || e.altKey);
+    }
+    press = null;
+    pinch = ptrs.size === 2 ? pinchInfo() : null;
+    if (!ptrs.size) canvas.classList.remove("dragging");
+  }
+  canvas.addEventListener("pointerup", up);
+  canvas.addEventListener("pointercancel", up);
+  canvas.addEventListener("pointerleave", () => { if (!ptrs.size) updateHover(null); });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
+  canvas.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+  document.addEventListener("gesturestart", (e) => e.preventDefault());
+
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    let dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? H : 1);
+    if (e.ctrlKey) dy *= 3;
+    zoomAt(Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.002), e.clientX, e.clientY);
+  }, { passive: false });
+
+  function reset() { state.camX = 0; state.camY = 0; state.zoom = 1; clampView(); state.dirty = true; }
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target.tagName;
+    if (tag === "INPUT" && e.target.type !== "range") return;
+    if (tag === "SELECT") return;
+    const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "+" || e.key === "=") zoomAt(1.5, W / 2, H / 2);
+    else if (e.key === "-" || e.key === "_") zoomAt(1 / 1.5, W / 2, H / 2);
+    else if (e.key === "0") reset();
+    else if (k === "f") setTool("fill");
+    else if (k === "t") setTool("tile");
+    else if (k === "e") setTool("erase");
+    else if (k === "i") setTool("pick");
+    else if (e.key === "[") setDepth(state.depth - 1);
+    else if (e.key === "]") setDepth(state.depth + 1);
+    else {
+      const step = 80 / (BASE_SCALE * state.zoom);
+      const m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (m) { e.preventDefault(); state.camX += m[0] * step; state.camY += m[1] * step; clampView(); state.dirty = true; }
+    }
+  });
+
+  for (const k in toolBtns) toolBtns[k].addEventListener("click", () => setTool(k));
+  brushInput.addEventListener("input", (e) => setBrush(e.target.value));
+  brushInput.addEventListener("change", (e) => pushRecent(e.target.value));
+  depthInput.addEventListener("input", (e) => setDepth(+e.target.value));
+  $("randomBtn").addEventListener("click", randomize);
+  $("resetBtn").addEventListener("click", reset);
+  $("undoBtn").addEventListener("click", undo);
+  $("redoBtn").addEventListener("click", redo);
+  $("clearBtn").addEventListener("click", () => {
+    if (!ops.length || !confirm("Remove all fills from this colouring? (You can undo.)")) return;
+    const a = { type: "clear", ops: ops.slice() };
+    doAction(a, true); pushUndo(a); afterOpsChanged();
+  });
+  arcsBtn.addEventListener("click", () => { setArcs(!state.arcs); scheduleSave(); });
+  kiteInput.addEventListener("input", (e) => { state.kite = e.target.value; syncColors(); });
+  dartInput.addEventListener("input", (e) => { state.dart = e.target.value; syncColors(); });
+  window.addEventListener("resize", resize);
+
+  /* =====================================================================
+   * 4. Saved colourings (auto-save, same approach as the P2 Sandbox index.html)
+   * localStorage:
+   *   penroseInfinite.mosaics -> { [id]: {id, name, created, updated, data} }
+   *   penroseInfinite.current -> id of the colouring last open
+   * Data v2 stores fill ops (including how far each flood has grown). v4 data
+   * (v1 "rules") is converted automatically on load.
+   * ===================================================================== */
+  const LS_MOSAICS = "penroseInfinite.mosaics", LS_CURRENT = "penroseInfinite.current";
+  const SAVE_DELAY = 600;
+  const mosaicSel = $("mosaicSel"), saveStatus = $("saveStatus");
+  let mosaics = {}, currentId = null, lastSavedJSON = "", saveTimer = 0, storageOK = true;
+
+  function loadStore() {
+    try {
+      mosaics = JSON.parse(localStorage.getItem(LS_MOSAICS) || "{}") || {};
+      if (typeof mosaics !== "object" || Array.isArray(mosaics)) mosaics = {};
+      return localStorage.getItem(LS_CURRENT);
+    } catch (err) { storageOK = false; mosaics = {}; return null; }
+  }
+  function writeStore() {
+    try {
+      localStorage.setItem(LS_MOSAICS, JSON.stringify(mosaics));
+      if (currentId) localStorage.setItem(LS_CURRENT, currentId);
+      storageOK = true;
+    } catch (err) { storageOK = false; }
+    return storageOK;
+  }
+  function setStatus(txt, isErr = false) { saveStatus.textContent = txt; saveStatus.classList.toggle("err", isErr); }
+  const r4 = (v) => Math.round(v * 1e4) / 1e4;
+
+  function opsJSON() {
+    if (opsJSONVersion !== opsVersion) {
+      opsJSONCache = JSON.stringify(ops.map((o) => [o.n, o.d, o.c, o.target, [...o.keys]]));
+      opsJSONVersion = opsVersion;
+    }
+    return opsJSONCache;
+  }
+  function serialize() {
+    const rest = JSON.stringify({
+      v: 2, opSeq, kite: state.kite, dart: state.dart, arcs: state.arcs,
+      brush: state.brush, recent: state.recent, depth: state.depth, tool: state.tool,
+      cam: { x: r4(state.camX), y: r4(state.camY), z: r4(state.zoom) }
+    });
+    return rest.slice(0, -1) + ',"ops":' + opsJSON() + "}";
+  }
+  const isHex = (c) => typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c);
+  const validDepth = (d) => (d >= 1 && d <= 12) || d === FULL_DEPTH;
+  function applyData(d) {
+    d = d || {};
+    ops = []; opSeq = 1;
+    if (Array.isArray(d.ops)) {
+      for (const it of d.ops) {
+        if (!Array.isArray(it) || !Number.isFinite(it[0]) || !validDepth(it[1]) || !Array.isArray(it[4])) continue;
+        const tgt = it[3] === "K" || it[3] === "D" || isHex(it[3]) ? it[3] : null;
+        ops.push({ n: it[0], d: it[1], c: isHex(it[2]) ? it[2] : null, target: tgt,
+                   keys: new Set(it[4].filter((k) => typeof k === "string")) });
+        opSeq = Math.max(opSeq, it[0] + 1);
+      }
+    } else if (d.rules && typeof d.rules === "object") {          // v4 format
+      const byN = new Map();
+      for (const dk in d.rules) {
+        const depth = +dk; if (!validDepth(depth)) continue;
+        for (const it of d.rules[dk] || []) {
+          if (!Array.isArray(it) || typeof it[0] !== "string" || !Number.isFinite(it[2])) continue;
+          const id = it[2] + ":" + depth;
+          let op = byN.get(id);
+          if (!op) { op = { n: it[2], d: depth, c: isHex(it[1]) ? it[1] : null, target: null, keys: new Set() }; byN.set(id, op); }
+          op.keys.add(it[0]);
+          opSeq = Math.max(opSeq, it[2] + 1);
+        }
+      }
+      ops = [...byN.values()];
+    }
+    ops.sort((a, b) => a.n - b.n);
+    if (Number.isFinite(d.opSeq)) opSeq = Math.max(opSeq, d.opSeq);
+    if (Number.isFinite(d.ruleSeq)) opSeq = Math.max(opSeq, d.ruleSeq);
+    rebuildIndex();
+    undoStack = []; redoStack = [];
+    state.kite = isHex(d.kite) ? d.kite : "#2563eb";
+    state.dart = isHex(d.dart) ? d.dart : "#f59e0b";
+    state.brush = isHex(d.brush) ? d.brush : "#ef4444";
+    if (Array.isArray(d.recent)) { const r = d.recent.filter(isHex).slice(0, 10); if (r.length) state.recent = r; }
+    const c = d.cam || {};
+    state.camX = Number.isFinite(c.x) ? c.x : 0;
+    state.camY = Number.isFinite(c.y) ? c.y : 0;
+    state.zoom = Number.isFinite(c.z) ? c.z : 1;
+    clampView();
+    setArcs(!!d.arcs);
+    setDepth(Number.isFinite(d.depth) ? d.depth : 4);
+    setTool(toolBtns[d.tool] ? d.tool : "fill");
+    brushDot.style.background = state.brush; brushInput.value = state.brush;
+    renderRecent();
+    cache = null;                       // regenerate + regrow for this colouring
+    syncColors();
+    updateLabels();
+    state.dirty = true;
+  }
+  function saveNow() {
+    clearTimeout(saveTimer); saveTimer = 0;
+    if (!currentId || !mosaics[currentId]) return;
+    const json = serialize();
+    if (json === lastSavedJSON) return;
+    const m = mosaics[currentId];
+    m.data = JSON.parse(json); m.updated = Date.now();
+    if (writeStore()) { lastSavedJSON = json; if (!saveStatus.classList.contains("err") || storageOK) setStatus("Saved"); }
+    else setStatus("Not saved (storage full?)", true);
+  }
+  function scheduleSave() { if (currentId && !saveTimer) saveTimer = setTimeout(saveNow, SAVE_DELAY); }
+  function uniqueName(base) {
+    const names = new Set(Object.values(mosaics).map((m) => m.name));
+    if (!names.has(base)) return base;
+    let n = 2; while (names.has(`${base} (${n})`)) n++;
+    return `${base} (${n})`;
+  }
+  function defaultName() {
+    let n = Object.keys(mosaics).length + 1;
+    const names = new Set(Object.values(mosaics).map((m) => m.name));
+    while (names.has(`Colouring ${n}`)) n++;
+    return `Colouring ${n}`;
+  }
+  function refreshMosaicList() {
+    mosaicSel.innerHTML = "";
+    Object.values(mosaics).sort((a, b) => b.updated - a.updated).forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.id; o.textContent = m.name;
+      mosaicSel.appendChild(o);
+    });
+    if (currentId) mosaicSel.value = currentId;
+  }
+  function createMosaic(name) {
+    saveNow();
+    const id = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    const now = Date.now();
+    mosaics[id] = { id, name: uniqueName(name || defaultName()), created: now, updated: now, data: null };
+    currentId = id;
+    applyData({ kite: state.kite, dart: state.dart, brush: state.brush, recent: state.recent, depth: state.depth, arcs: state.arcs });
+    lastSavedJSON = "";
+    saveNow();
+    refreshMosaicList();
+  }
+  function openMosaic(id) {
+    if (!mosaics[id] || id === currentId) return;
+    saveNow();
+    currentId = id;
+    applyData(mosaics[id].data);
+    lastSavedJSON = serialize();
+    writeStore(); refreshMosaicList(); setStatus("Opened");
+  }
+  $("newMosaic").onclick = () => { createMosaic(null); setStatus("New"); };
+  mosaicSel.onchange = () => { openMosaic(mosaicSel.value); mosaicSel.blur(); };
+  $("renameMosaic").onclick = () => {
+    const m = mosaics[currentId]; if (!m) return;
+    const input = prompt("Rename colouring:", m.name);
+    if (input === null) return;
+    const name = input.trim().slice(0, 60);
+    if (!name || name === m.name) return;
+    m.name = uniqueName(name);
+    writeStore(); refreshMosaicList(); setStatus(storageOK ? "Renamed" : "Not saved", !storageOK);
+  };
+  $("deleteMosaic").onclick = () => {
+    const m = mosaics[currentId]; if (!m) return;
+    if (!confirm(`Delete "${m.name}"? This cannot be undone.`)) return;
+    clearTimeout(saveTimer); saveTimer = 0;
+    delete mosaics[currentId];
+    const rest = Object.values(mosaics).sort((a, b) => b.updated - a.updated);
+    if (rest.length) {
+      currentId = rest[0].id; applyData(rest[0].data); lastSavedJSON = serialize(); writeStore(); refreshMosaicList();
+    } else { currentId = null; createMosaic(null); }
+    setStatus("Deleted");
+  };
+  window.addEventListener("pagehide", saveNow);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveNow(); });
+  window.addEventListener("storage", (e) => {
+    if (e.key !== LS_MOSAICS) return;
+    try { const other = JSON.parse(e.newValue || "{}"); if (mosaics[currentId]) other[currentId] = mosaics[currentId]; mosaics = other; } catch (_) {}
+    refreshMosaicList();
+  });
+
+  // ---------- boot ----------
+  resize();
+  const lastId = loadStore();
+  if (lastId && mosaics[lastId]) {
+    currentId = lastId; applyData(mosaics[lastId].data); lastSavedJSON = ""; refreshMosaicList();
+  } else if (Object.keys(mosaics).length) {
+    const m = Object.values(mosaics).sort((a, b) => b.updated - a.updated)[0];
+    currentId = m.id; applyData(m.data); lastSavedJSON = ""; writeStore(); refreshMosaicList();
+  } else {
+    createMosaic("Colouring 1");
+  }
+  if (!storageOK) setStatus("Storage unavailable", true);
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
